@@ -9,32 +9,22 @@ LV::setup()
   {
     pcout << "Initializing the mesh" << std::endl;
 
-    // First we read the mesh from file into a serial (i.e. not parallel)
-    // triangulation.
     Triangulation<dim> mesh_serial;
 
-    {
-      GridIn<dim> grid_in;
-      grid_in.attach_triangulation(mesh_serial);
+    GridIn<dim> grid_in;
+    grid_in.attach_triangulation(mesh_serial);
 
-      std::ifstream grid_in_file(mesh_file_name);
-      grid_in.read_msh(grid_in_file);
-    }
+    std::ifstream grid_in_file(mesh_file_name);
+    grid_in.read_msh(grid_in_file);
 
-    // Then, we copy the triangulation into the parallel one.
-    {
-      GridTools::partition_triangulation(mpi_size, mesh_serial);
-      const auto construction_data = TriangulationDescription::Utilities::
-        create_description_from_triangulation(mesh_serial, MPI_COMM_WORLD);
-      mesh.create_triangulation(construction_data);
-    }
+    GridTools::partition_triangulation(mpi_size, mesh_serial);
+    const auto construction_data = TriangulationDescription::Utilities::
+      create_description_from_triangulation(mesh_serial, MPI_COMM_WORLD);
+    mesh.create_triangulation(construction_data);
 
-    // Notice that we write here the number of *global* active cells (across all
-    // processes).
     pcout << "  Number of elements = " << mesh.n_global_active_cells()
           << std::endl;
   }
-
   pcout << "-----------------------------------------------" << std::endl;
 
   // Initialize the finite element space. This is the same as in serial codes.
@@ -47,8 +37,8 @@ LV::setup()
     pcout << "  DoFs per cell              = " << fe->dofs_per_cell
           << std::endl;
 
-    quadrature = std::make_unique<QGaussSimplex<dim>>(r + 1);
-    quadrature_face = std::make_unique<QGaussSimplex<dim - 1>>(r + 1);
+    quadrature = std::make_unique<QGaussSimplex<dim>>(fe->degree + 1);
+    quadrature_face = std::make_unique<QGaussSimplex<dim - 1>>(fe->degree + 1);
 
     pcout << "  Quadrature points per cell = " << quadrature->size()
           << std::endl;
@@ -68,6 +58,7 @@ LV::setup()
     // We retrieve the set of locally owned DoFs, which will be useful when
     // initializing linear algebra classes.
     locally_owned_dofs = dof_handler.locally_owned_dofs();
+    DoFTools::extract_locally_relevant_dofs(dof_handler, locally_relevant_dofs);
 
     pcout << "  Number of DoFs = " << dof_handler.n_dofs() << std::endl;
   }
@@ -85,22 +76,19 @@ LV::setup()
     TrilinosWrappers::SparsityPattern sparsity(locally_owned_dofs,
                                                MPI_COMM_WORLD);
     DoFTools::make_sparsity_pattern(dof_handler, sparsity);
-
-    // After initialization, we need to call compress, so that all process
-    // retrieve the information they need for the rows they own (i.e. the rows
-    // corresponding to locally owned DoFs).
     sparsity.compress();
 
-    // Then, we use the sparsity pattern to initialize the system matrix. Since
-    // the sparsity pattern is partitioned by row, so will the matrix.
-    pcout << "  Initializing the system matrix" << std::endl;
-    system_matrix.reinit(sparsity);
+    pcout << "  Initializing the Jacobian matrix" << std::endl;
+    jacobian_matrix.reinit(sparsity);
 
-    // Finally, we initialize the right-hand side and solution vectors.
+
     pcout << "  Initializing the system right-hand side" << std::endl;
     system_rhs.reinit(locally_owned_dofs, MPI_COMM_WORLD);
     pcout << "  Initializing the solution vector" << std::endl;
-    solution.reinit(locally_owned_dofs, MPI_COMM_WORLD);
+    solution_owned.reinit(locally_owned_dofs, MPI_COMM_WORLD);
+    delta_owned.reinit(locally_owned_dofs, MPI_COMM_WORLD);
+    
+    solution.reinit(locally_owned_dofs,locally_relevant_dofs, MPI_COMM_WORLD);
   }
 }
 
@@ -130,14 +118,16 @@ LV::assemble()
 
   std::vector<types::global_dof_index> dof_indices(dofs_per_cell);
 
-  system_matrix = 0.0;
-  system_rhs    = 0.0;
+  jacobian_matrix = 0.0;
+  system_rhs      = 0.0;
 
-    Tensor<1,dim> previous_solution_gradients(n_q);
+//necesary for Robin
+std::vector<double> solution_loc(n_q_face);
+std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
 
-    Tensor<1,dim> previous_solution_gradients_face(n_q_face);
-    Tensor<1,dim> old_solution_values_face(n_q_face);
-    
+//forse una cosa del genere per la pressione e/o F????
+
+
 
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
@@ -162,65 +152,81 @@ LV::assemble()
           input_data data;
           //riempire data con i valori corretti
           
-          //at each quadrature point the deformation gradient should be 1 initially
-
-          for (unsigned int i=0; i< dim; ++i)
-            data.F[i][i]= 1.0;
-                      
+          Tensor<2,dim> F=;//TODO calcolare il gradiente della mappatura in quel punto
 
           Tensor<2,dim> P=compute_P(data);
           Tensor<4,dim> dP_dF=compute_dP_dF(data);
           
-          const double JxW = fe_values.JxW(q);
 
-          
-
-          for (unsigned int i = 0; i < dofs_per_cell; ++i)
-            {
-              Tensor <2,dim> grad_phi_i;
-              for (unsigned int d = 0; d < dim; ++d)
-                grad_phi_i[d] = fe_values.shape_grad(i, q, d);
-
-
-              //P: delta phi_i
-
-
-              for (unsigned int d1 = 0; d1 < dim; ++d1)
-                for (unsigned int d2 = 0; d2 < dim; ++d2)
-                  residual_i += P[d1][d2] * grad_phi_i[d1][d2];
-
-              cell_rhs(i) += residual_i * fe_values.JxW(q);
-                  
-              
-              //dP/dF : delta phi_i  tensoriale  delta phi_j
-              for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                {
-                  Tensor <2,dim> grad_phi_j;
-                  for (unsigned int d = 0; d < dim; ++d)
-                    grad_phi_j[d] = fe_values.shape_grad(j, q, d);
-
-
-                  double tangent_ij= 0.0;
-                  for (unsigned int d1 = 0; d1 < dim; ++d1)
-                    for (unsigned int d2 = 0; d2 < dim; ++d2)
-                      for (unsigned int d3 = 0; d3 < dim; ++d3)
-                        for (unsigned int d4 = 0; d4 < dim; ++d4)
-                          tangent_ij += dP_dF[d1][d2][d3][d4] *
-                                        grad_phi_i[d3][d4] *
-                                        grad_phi_j[d1][d2];
-
-
-                  cell_matrix(i,j) += tangent_ij * fe_values.JxW(q);
-                }
-            }
+          for (unsigned int i = 0; i < dofs_per_cell; ++i){
+            cell_rhs(i)+=scalar_product(P,fe_values.shape_grad(i,q))*fe_values.JxW(q);
+          }
         }
 
-                  //creare qui il tensore input_data e calcolare P e dP/dF
-                  //assemblare cell_matrix con dP/dF tenendo conto del prodotto scalare tensoriale
+          if(cell->at_boundary()){
+            for (unsigned int f=0;f< cell->n_faces();++f){
+              if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id()== 3) {
+                fe_face_values.reinit(cell,f);
+                  
+                  for (unsigned int q=0; q<n_q_face;++q){
+
+                    //da capire la dipendenza rispetto a q
+
+
+                    Tensor <2,dim> Fh=F(q);
+                    
+                    //Tensor<2,dim> H=det(Fh)*transpose(inverse(Fh)); 
+
+                    double pressure=pressure(q) ; //TODO definire la pressione in quel punto
+                    
+                    for (unsigned int i=0;i<dofs_per_cell;++i){
+                        cell_rhs[i] += pressure*scalar_product(H*fe_face_values.normal_vector(q),fe_face_values.shape_value(i,q))*fe_face_values.JxW(q);
+                  
+                      //compute derivative and calculate the cell_matrix[i,j]=d cell_rhs[i]/d u_j * (-1)
+                      }
+                  }
+              }
+
+
+      //ROBIN TERM
+      //mi serve sapere uh sulla faccia e onn l'ho mai trovato nei laboratori quindi boh
+            
+      /*
+      if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id()== 1) {
+        fe_face_values.reinit(cell,f);
+        
+
+        
+        std::vector<double> solution_loc(n_q_face);
+        //std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
+        fe_face_values.get_function_values(solution, solution_loc);
+        //fe_face_values.get_function_gradients(solution, solution_gradient_loc);
 
 
 
+        for (unsigned int q=0; q<n_q_face;++q){
+          
+        
+        for (unsigned int i=0;i<dofs_per_cell;++i){
+          cell_rhs(i) += alpha * solution_loc[q] *
+                               fe_face_values.shape_value(i, q) *
+                               fe_face_values.JxW(q);
+        }
+        
+        for (unsigned int i=0;i<dofs_per_cell;++i){
+          for (unsigned int j=0;j<dofs_per_cell;++j){
+            cell_matrix(i,j)+= alpha*fe_face_values.shape_value(i,q)*
+                              fe_face_values.shape_value(j,q)*
+                              fe_face_values.JxW(q);
+        
+      }
+    }   
+    */
 
+
+
+  }
+}
 
 
 
@@ -230,35 +236,20 @@ LV::assemble()
 
       system_matrix.add(dof_indices, cell_matrix);
       system_rhs.add(dof_indices, cell_rhs);
-    }
 
-  // Each process might have written to some rows it does not own (for instance,
-  // if it owns elements that are adjacent to elements owned by some other
-  // process). Therefore, at the end of the assembly, processes need to exchange
-  // information: the compress method allows to do this.
+
+}
   system_matrix.compress(VectorOperation::add);
   system_rhs.compress(VectorOperation::add);
 
-  // Boundary conditions.
+  // Dirichlet Boundary conditions.
   {
     std::map<types::global_dof_index, double> boundary_values;
 
     std::map<types::boundary_id, const Function<dim> *> boundary_functions;
 
-///////////////TODO definire le condizioni al bordo/////////////////////
-    //anche tenendo conto dei diversi comportamenti su pareti diverse
 
-
-
-
-
-
-
-
-
-
-
-
+    boundary_functions[2] = &function_g;
 
 
     VectorTools::interpolate_boundary_values(dof_handler,
@@ -269,30 +260,76 @@ LV::assemble()
       boundary_values, system_matrix, solution, system_rhs, true);
   }
 }
+void
+LV::solve_linear_system(){
 
+   SolverControl solver_control(1000, 1e-6 * system_rhs.l2_norm());
+
+  SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control);
+  TrilinosWrappers::PreconditionSSOR      preconditioner;
+  preconditioner.initialize(
+    jacobian_matrix, TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
+
+  solver.solve(jacobian_matrix, delta_owned, system_rhs, preconditioner);
+  pcout << "  " << solver_control.last_step() << " GMRES iterations" << std::endl;
+}
+
+}
 
 void
-LV::solve()
+LV::solve_newton()
 {
-  pcout << "===============================================" << std::endl;
+  const unsigned int n_max_iters        = 1000;
+  const double       residual_tolerance = 1e-6;
 
- //manca ancora tutto il solve con newton ecc...
+  unsigned int n_iter        = 0;
+  double       residual_norm = residual_tolerance + 1;
 
-  pcout << "Solver of the non linear problem using Newton-Raphson method" << std::endl;
+  // We apply the boundary conditions to the initial guess (which is stored in
+  // solution_owned and solution).
+  {
+    IndexSet dirichlet_dofs = DoFTools::extract_boundary_dofs(dof_handler);
+    dirichlet_dofs          = dirichlet_dofs & dof_handler.locally_owned_dofs();
 
-  const double tol=1e-7;
-  const unsigned int max_iter=200;
+    function_g.set_time(time);
 
-  unsigned int iteration=0;
-  double norm_residual=0.0;
+    TrilinosWrappers::MPI::Vector vector_dirichlet(solution_owned);
+    VectorTools::interpolate(dof_handler, function_g, vector_dirichlet);
 
-  double solution=0.0;
+    for (const auto &idx : dirichlet_dofs)
+      solution_owned[idx] = vector_dirichlet[idx];
 
-  
-
-
-
+    solution_owned.compress(VectorOperation::insert);
+    solution = solution_owned;
   }
+
+  while (n_iter < n_max_iters && residual_norm > residual_tolerance)
+    {
+      assemble_system();
+      residual_norm = system_rhs.l2_norm();
+
+      pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
+            << " - ||r|| = " << std::scientific << std::setprecision(6)
+            << residual_norm << std::flush;
+
+      // We actually solve the system only if the residual is larger than the
+      // tolerance.
+      if (residual_norm > residual_tolerance)
+        {
+          solve_linear_system();
+
+          solution_owned += delta_owned;
+          solution = solution_owned;
+        }
+      else
+        {
+          pcout << " < tolerance" << std::endl;
+        }
+
+      ++n_iter;
+    }
+}
+
 
 
 

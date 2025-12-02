@@ -153,7 +153,10 @@ ADHelper ad_helper;
 
   // System solution.
   void
-  solve();
+  solve_linear_system();
+
+  void
+  solve_newton();
 
   // Output.
   void
