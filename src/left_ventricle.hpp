@@ -30,11 +30,14 @@
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
+#include <deal.II/differentiation/ad/ad_helpers.h>
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 
 using namespace dealii;
+namespace AutoDiff = dealii::Differentiation::AD;
 
 /**
  * Class managing the differential problem.
@@ -128,7 +131,9 @@ double b_n; //normal direction
     }
   };
 
-using ADHelper = dealii::AutomaticDifferentiation::ADHelper<dim>; //dovrebbe permettere di calcolare la derivata in qualcge modo
+  
+  
+  using ADHelper = AutoDiff::HelperBase<AutoDiff::NumberTypes::none>; //dovrebbe permettere di calcolare la derivata in qualcge modo
 ADHelper ad_helper;
 
 

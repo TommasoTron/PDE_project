@@ -33,7 +33,7 @@ find_package(deal.II 9.3.1 REQUIRED
 deal_ii_initialize_cached_variables()
 
 # Add useful compiler flags.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wfloat-conversion -Wmissing-braces -Wnon-virtual-dtor")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wfloat-conversion -Wmissing-braces -Wnon-virtual-dtor -Wfatal-errors")
 file(GLOB_RECURSE SOURCE_FILES "src/*.cpp" "src/*.hpp")
 
 add_library(LeftVentricle STATIC src/left_ventricle.cpp)
