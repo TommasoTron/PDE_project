@@ -58,7 +58,7 @@ LV::setup()
     // We retrieve the set of locally owned DoFs, which will be useful when
     // initializing linear algebra classes.
     locally_owned_dofs = dof_handler.locally_owned_dofs();
-    DoFTools::extract_locally_relevant_dofs(dof_handler, locally_relevant_dofs);
+    DoFTools::extract_locally_relevant_dofs(dof_handler, locally_owned_dofs);
 
     pcout << "  Number of DoFs = " << dof_handler.n_dofs() << std::endl;
   }
@@ -88,7 +88,7 @@ LV::setup()
     solution_owned.reinit(locally_owned_dofs, MPI_COMM_WORLD);
     delta_owned.reinit(locally_owned_dofs, MPI_COMM_WORLD);
     
-    solution.reinit(locally_owned_dofs,locally_relevant_dofs, MPI_COMM_WORLD);
+    solution.reinit(locally_owned_dofs, MPI_COMM_WORLD);
   }
 }
 
@@ -103,12 +103,15 @@ LV::assemble_system()
   const unsigned int n_q           = quadrature->size();
   const unsigned int n_q_face      = quadrature_face->size();
 
-  FEValues<dim> fe_values(*fe,
+  fs = std::make_unique<FESystem<dim>>(fe, dim);
+  
+  
+  FEValues<dim> fe_values(*fs,
                           *quadrature,
                           update_values | update_gradients |
                             update_quadrature_points | update_JxW_values);
   
-  FEFaceValues<dim> fe_face_values(*fe,
+  FEFaceValues<dim> fe_face_values(*fs,
                                    *quadrature_face,
                                    update_values | update_normal_vectors |
                                      update_JxW_values);
@@ -127,8 +130,7 @@ std::vector<Tensor<1, dim>> solution_gradient_loc_face(n_q_face);
 
 
 std::vector<double> solution_loc(n_q);
-std::vector<Tensor<1, dim>> solution_gradient_loc(n_q);
-
+std::vector<Tensor<2, dim>> solution_gradient_loc(n_q);
 
 
   for (const auto &cell : dof_handler.active_cell_iterators())
@@ -163,8 +165,8 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q);
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i){
             cell_rhs(i)+=scalar_product(P,fe_values.shape_grad(i,q))*fe_values.JxW(q);
-          }
-
+          
+}
           //da valutare se fare qui la matrice jacobiana a mano o con AD::sacado...
 
         }

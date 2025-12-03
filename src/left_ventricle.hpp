@@ -10,6 +10,7 @@
 
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/mapping_fe.h>
 
 #include <deal.II/grid/grid_generator.h>
@@ -133,8 +134,8 @@ double b_n; //normal direction
 
   
   
-  using ADHelper = AutoDiff::HelperBase<AutoDiff::NumberTypes::none>; //dovrebbe permettere di calcolare la derivata in qualcge modo
-ADHelper ad_helper;
+  //using ADHelper = AutoDiff::HelperBase<AutoDiff::NumberTypes::none>; //dovrebbe permettere di calcolare la derivata in qualcge modo
+  //ADHelper ad_helper;
 
 
   // Constructor.
@@ -195,21 +196,33 @@ protected:
   // Finite element space.
   std::unique_ptr<FiniteElement<dim>> fe;
 
+  // Finite System
+  std::unique_ptr<FESystem<dim>> fs;
+
   // Quadrature formula.
   std::unique_ptr<Quadrature<dim>> quadrature;
-
+  std::unique_ptr<Quadrature<dim-1>> quadrature_face;
+  
   // DoF handler.
   DoFHandler<dim> dof_handler;
 
   // System matrix.
   TrilinosWrappers::SparseMatrix system_matrix;
 
+  //Jacobian Matrix
+  TrilinosWrappers::SparseMatrix jacobian_matrix;
+  
   // System right-hand side.
   TrilinosWrappers::MPI::Vector system_rhs;
 
   // System solution.
   TrilinosWrappers::MPI::Vector solution;
 
+  // System solution (without ghost elements).
+  TrilinosWrappers::MPI::Vector solution_owned;
+
+  TrilinosWrappers::MPI::Vector delta_owned;
+  
   // Parallel output stream.
   ConditionalOStream pcout;
 
