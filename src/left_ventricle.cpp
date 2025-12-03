@@ -121,11 +121,13 @@ LV::assemble()
   jacobian_matrix = 0.0;
   system_rhs      = 0.0;
 
-//necesary for Robin
-std::vector<double> solution_loc(n_q_face);
-std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
+//necessary for Robin (non sono sicuro servano )
+std::vector<double> solution_loc_face(n_q_face);
+std::vector<Tensor<1, dim>> solution_gradient_loc_face(n_q_face);
 
-//forse una cosa del genere per la pressione e/o F????
+
+std::vector<double> solution_loc(n_q);
+std::vector<Tensor<1, dim>> solution_gradient_loc(n_q);
 
 
 
@@ -142,42 +144,51 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
 
       cell_matrix = 0.0;
       cell_rhs    = 0.0;
-      
-
-      
+            
       cell->get_dof_indices(dof_indices);
+      
+      fe_values.get_function_gradients(solution, solution_gradient_loc);
+
 
       for (unsigned int q = 0; q < n_q; ++q)
         {
-          input_data data;
-          //riempire data con i valori corretti
-          
-          Tensor<2,dim> F=;//TODO calcolare il gradiente della mappatura in quel punto
+          Tensor<2,dim> grad_u=solution_gradient_loc[q];
 
-          Tensor<2,dim> P=compute_P(data);
-          Tensor<4,dim> dP_dF=compute_dP_dF(data);
+          Tensor<2,dim> F = unit_symmetric_tensor<dim>();
+          F += grad_u;
+
+          Tensor<2,dim> P=compute_P(F);
+          Tensor<4,dim> dP_dF=compute_dP_dF(F);
           
 
           for (unsigned int i = 0; i < dofs_per_cell; ++i){
             cell_rhs(i)+=scalar_product(P,fe_values.shape_grad(i,q))*fe_values.JxW(q);
           }
+
+          //da valutare se fare qui la matrice jacobiana a mano o con AD::....
+
         }
 
           if(cell->at_boundary()){
             for (unsigned int f=0;f< cell->n_faces();++f){
               if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id()== 3) {
+                
                 fe_face_values.reinit(cell,f);
-                  
+
+                fe_face_values.get_function_gradients(solution, solution_gradient_loc_face);
+                //fe_face_values.get_function_values(solution, solution_loc_face);
+
+
                   for (unsigned int q=0; q<n_q_face;++q){
-
-                    //da capire la dipendenza rispetto a q
-
-
-                    Tensor <2,dim> Fh=F(q);
+                    {
+                      Tensor<2,dim> grad_u_face=solution_gradient_loc_face[q];
+                      
+                      Tensor <2,dim> Fh=unit_symmetric_tensor<dim>();
+                      Fh += grad_u_face;
                     
                     //Tensor<2,dim> H=det(Fh)*transpose(inverse(Fh)); 
 
-                    double pressure=pressure(q) ; //TODO definire la pressione in quel punto
+                    double pressure=compute_pressure(q) ; //TODO definire la pressione in quel punto
                     
                     for (unsigned int i=0;i<dofs_per_cell;++i){
                         cell_rhs[i] += pressure*scalar_product(H*fe_face_values.normal_vector(q),fe_face_values.shape_value(i,q))*fe_face_values.JxW(q);
@@ -185,7 +196,9 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
                       //compute derivative and calculate the cell_matrix[i,j]=d cell_rhs[i]/d u_j * (-1)
                       }
                   }
+
               }
+            }
 
 
       //ROBIN TERM
@@ -193,44 +206,29 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
             
       /*
       if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id()== 1) {
+        
         fe_face_values.reinit(cell,f);
-        
+             
+        fe_face_values.get_function_values(solution, solution_loc_face);
 
-        
-        std::vector<double> solution_loc(n_q_face);
-        //std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
-        fe_face_values.get_function_values(solution, solution_loc);
-        //fe_face_values.get_function_gradients(solution, solution_gradient_loc);
-
-
-
-        for (unsigned int q=0; q<n_q_face;++q){
-          
+        for (unsigned int q=0; q<n_q_face;++q){  
         
         for (unsigned int i=0;i<dofs_per_cell;++i){
-          cell_rhs(i) += alpha * solution_loc[q] *
+          cell_rhs(i) += alpha * solution_loc_face[q] *
                                fe_face_values.shape_value(i, q) *
                                fe_face_values.JxW(q);
-        }
+                                }
         
         for (unsigned int i=0;i<dofs_per_cell;++i){
           for (unsigned int j=0;j<dofs_per_cell;++j){
             cell_matrix(i,j)+= alpha*fe_face_values.shape_value(i,q)*
                               fe_face_values.shape_value(j,q)*
                               fe_face_values.JxW(q);
-        
-      }
-    }   
-    */
-
-
-
-  }
-}
-
-
-
-
+                                }
+                              }   
+          }
+        }
+*/
 
       cell->get_dof_indices(dof_indices);
 
@@ -243,7 +241,7 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
   system_rhs.compress(VectorOperation::add);
 
   // Dirichlet Boundary conditions.
-  {
+  
     std::map<types::global_dof_index, double> boundary_values;
 
     std::map<types::boundary_id, const Function<dim> *> boundary_functions;
@@ -258,8 +256,10 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q_face);
 
     MatrixTools::apply_boundary_values(
       boundary_values, system_matrix, solution, system_rhs, true);
+    }
   }
 }
+
 void
 LV::solve_linear_system(){
 
@@ -274,7 +274,7 @@ LV::solve_linear_system(){
   pcout << "  " << solver_control.last_step() << " GMRES iterations" << std::endl;
 }
 
-}
+
 
 void
 LV::solve_newton()
@@ -383,6 +383,35 @@ LV::output() const
 }
 
 
+
+
+//TODO controllare, ci sono tante formulazioni, vedere come è quella degli articoli. Questa è quella che mi sembrava più completa
+  Tensor<2,dim> compute_P_neo_hooke(const Tensor<2,dim> F) const
+  {
+    const double mu=5.0;
+    const double lambda =10.0;
+
+    const double J=determinant(F);
+
+    const double k=0.05;
+
+
+    Tensor<2,dim> P=mu*std::pow(j,-2.0/3.0)*F;
+
+    Tensor<2,dim> C= transpose(F)*F;
+    const double term1=trace(C);
+
+    C_inv=inverse(C);
+
+    P=P-term1*C_inv/3.0;
+
+    P=P+k*(J-1)*J * C_inv;
+  }
+
+
+
+
+
   Tensor<2,dim> compute_P(input_data data) const
   {
     Tensor<2,dim> C=transpose(data.F) *data.F;
@@ -423,3 +452,7 @@ Tensor<4, LV::dim> LV::compute_dP_dF(const Vector<double> &d,const Point<dim> &p
 
 
 
+double compute_pressure(const Point<dim>& p) const 
+{
+  return 10.0; //random value just to have a compute pressure funcion;
+}

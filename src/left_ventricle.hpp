@@ -92,7 +92,7 @@ double b_n; //normal direction
 
   };
   
-
+  double compute_pressure(const Point<dim>&) const;
 
   Tensor<2,dim> compute_P(input_data data) const;
 
