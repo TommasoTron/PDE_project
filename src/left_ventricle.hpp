@@ -1,5 +1,4 @@
-#ifndef LV_HPP
-#define LV_HPP
+#pragma once
 
 #include <deal.II/base/conditional_ostream.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -213,4 +212,3 @@ protected:
   IndexSet locally_owned_dofs;
 };
 
-#endif
