@@ -149,7 +149,7 @@ ADHelper ad_helper;
 
   // System assembly.
   void
-  assemble();
+  assemble_system();
 
   // System solution.
   void

@@ -93,7 +93,7 @@ LV::setup()
 }
 
 void
-LV::assemble()
+LV::assemble_system()
 {
   pcout << "===============================================" << std::endl;
 
@@ -157,7 +157,7 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q);
           Tensor<2,dim> F = unit_symmetric_tensor<dim>();
           F += grad_u;
 
-          Tensor<2,dim> P=compute_P(F);
+          Tensor<2,dim> P=compute_P_neo_hooke(F);
           Tensor<4,dim> dP_dF=compute_dP_dF(F);
           
 
@@ -165,7 +165,7 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q);
             cell_rhs(i)+=scalar_product(P,fe_values.shape_grad(i,q))*fe_values.JxW(q);
           }
 
-          //da valutare se fare qui la matrice jacobiana a mano o con AD::....
+          //da valutare se fare qui la matrice jacobiana a mano o con AD::sacado...
 
         }
 
@@ -186,7 +186,7 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q);
                       Tensor <2,dim> Fh=unit_symmetric_tensor<dim>();
                       Fh += grad_u_face;
                     
-                    //Tensor<2,dim> H=det(Fh)*transpose(inverse(Fh)); 
+                      Tensor<2,dim> H=det(Fh)*transpose(inverse(Fh)); 
 
                     double pressure=compute_pressure(q) ; //TODO definire la pressione in quel punto
                     
@@ -232,12 +232,12 @@ std::vector<Tensor<1, dim>> solution_gradient_loc(n_q);
 
       cell->get_dof_indices(dof_indices);
 
-      system_matrix.add(dof_indices, cell_matrix);
+      jacobian_matrix.add(dof_indices, cell_matrix);
       system_rhs.add(dof_indices, cell_rhs);
 
 
 }
-  system_matrix.compress(VectorOperation::add);
+  jacobian_matrix.compress(VectorOperation::add);
   system_rhs.compress(VectorOperation::add);
 
   // Dirichlet Boundary conditions.
@@ -401,11 +401,13 @@ LV::output() const
     Tensor<2,dim> C= transpose(F)*F;
     const double term1=trace(C);
 
-    C_inv=inverse(C);
+    Tensor<2,dim> C_inv=inverse(C);
 
     P=P-term1*C_inv/3.0;
 
     P=P+k*(J-1)*J * C_inv;
+
+    return P;
   }
 
 
