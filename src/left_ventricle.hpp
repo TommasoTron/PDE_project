@@ -9,8 +9,8 @@
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_simplex_p.h>
-#include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/fe_system.h>
+#include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_fe.h>
 
 #include <deal.II/grid/grid_generator.h>
@@ -43,129 +43,100 @@ namespace AutoDiff = dealii::Differentiation::AD;
 /**
  * Class managing the differential problem.
  */
-class LV
-{
+class LV {
 public:
   // Physical dimension (1D, 2D, 3D)
   static constexpr unsigned int dim = 3;
+  static constexpr double mu_hook = 2.0;
+  static constexpr double k_hook = 3.0;
 
+  struct input_data {
 
+    double b_f; // stretch in the fiber direction
 
-  struct input_data
-  {
-    
+    double b_s; // stretch in the tangential direction
 
-double b_f; //stretch in the fiber direction
+    double b_n; // normal direction
 
-double b_s; //stretch in the tangential direction
+    Tensor<1, dim> f0; // vector in the fiber direction
+    Tensor<1, dim> s0; // vector in the sheet direction
+    Tensor<1, dim> n0; // vector in the normal direction
 
-double b_n; //normal direction
+    // TODO add direction different from the 3 main ones
 
+    Tensor<2, dim> F; // deformation gradient
 
+    double Ta; // active tension
 
-
-    Tensor <1,dim> f0;  //vector in the fiber direction
-    Tensor <1,dim> s0;  //vector in the sheet direction
-    Tensor <1,dim> n0;  //vector in the normal direction
-    
-
-    //TODO add direction different from the 3 main ones 
-
-    Tensor<2 ,dim> F; //deformation gradient
-
-    double Ta; //active tension
-
-    input_data( const Tensor<2,dim>& deformation_gradient_,
-                const Tensor<1,dim>& fiber_direction_,
-                const Tensor<1,dim>& sheet_direction_,
-                const Tensor<1,dim>& normal_direction_,
-                double active_tension,
-                double bf,
-                double bs,
-                double bn):
-                  F(deformation_gradient_)
-                , f0(fiber_direction_)
-                , s0(sheet_direction_)
-                , n0(normal_direction_)
-                , Ta(active_tension)
-                , b_f(bf)
-                , b_s(bs)
-                , b_n(bn)
-                {}
-
-  };
-  
-  double compute_pressure(const Point<dim>&) const;
-
-  Tensor<2,dim> compute_P(input_data data) const;
-
-  Tensor<4, dim> compute_dP_dF(const Vector<double> &d,
-                                 const Point<dim> &p) const;
-
-
-                                 // Forcing term.
-  class ForcingTerm : public Function<dim> //TODO
-  {
-  public:
-    // Constructor.
-    ForcingTerm()
-    {}
-
-    
-  };
-
-
-  // Dirichlet boundary conditions.
-  class FunctionG : public Function<dim>
-  {
-  public:
-    // Constructor.
-    FunctionG()
-    {}
-
-    // Evaluation.
-    virtual double
-    value(const Point<dim> & /*p*/,
-          const unsigned int /*component*/ = 0) const override
-    {
-      return 0.0; //g(p[0]
+    input_data(const Tensor<2, dim> &deformation_gradient_,
+               const Tensor<1, dim> &fiber_direction_,
+               const Tensor<1, dim> &sheet_direction_,
+               const Tensor<1, dim> &normal_direction_, double active_tension,
+               double bf, double bs, double bn)
+        : F(deformation_gradient_), f0(fiber_direction_), s0(sheet_direction_),
+          n0(normal_direction_), Ta(active_tension), b_f(bf), b_s(bs), b_n(bn) {
     }
   };
 
-  
-  
-  //using ADHelper = AutoDiff::HelperBase<AutoDiff::NumberTypes::none>; //dovrebbe permettere di calcolare la derivata in qualcge modo
-  //ADHelper ad_helper;
+  double compute_pressure(const Point<dim> &) const;
 
+  using ADHelper = AutoDiff::HelperBase<AutoDiff::NumberTypes::none>;
+  using ADNumberType = typename ADHelper::ad_type;
+  using ADTensor2 = Tensor<2,dim, ADNumberType>;
+
+  
+  // compute P tensor (neo hooke) starting from the jacobian of u (u is a
+  // matrix!)
+  Tensor<2, dim> compute_P(const Tensor<2, dim> &grad_u) const;
+  ADNumberType compute_W(const ADTensor2& F) const;
+  
+  Tensor<4, dim> compute_dP_dF(const Vector<double> &d,
+                               const Point<dim> &p) const;
+
+  // Forcing term.
+  class ForcingTerm : public Function<dim> // TODO
+  {
+  public:
+    // Constructor.
+    ForcingTerm() {}
+  };
+
+  // Dirichlet boundary conditions.
+  class FunctionG : public Function<dim> {
+  public:
+    // Constructor.
+    FunctionG() {}
+
+    // Evaluation.
+    virtual double value(const Point<dim> & /*p*/,
+                         const unsigned int /*component*/ = 0) const override {
+      return 0.0; // g(p[0]
+    }
+  };
+
+  // //dovrebbe permettere di calcolare la derivata in qualcge modo ADHelper
+  // ad_helper;
 
   // Constructor.
   LV(const std::string &mesh_file_name_, const unsigned int &r_)
-    : mesh_file_name(mesh_file_name_)
-    , r(r_)
-    , mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD))
-    , mpi_rank(Utilities::MPI::this_mpi_process(MPI_COMM_WORLD))
-    , mesh(MPI_COMM_WORLD)
-    , pcout(std::cout, mpi_rank == 0)
-  {}
+      : mesh_file_name(mesh_file_name_), r(r_),
+        mpi_size(Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD)),
+        mpi_rank(Utilities::MPI::this_mpi_process(MPI_COMM_WORLD)),
+        mesh(MPI_COMM_WORLD), pcout(std::cout, mpi_rank == 0) {}
 
   // Initialization.
-  void
-  setup();
+  void setup();
 
   // System assembly.
-  void
-  assemble_system();
+  void assemble_system();
 
   // System solution.
-  void
-  solve_linear_system();
+  void solve_linear_system();
 
-  void
-  solve_newton();
+  void solve_newton();
 
   // Output.
-  void
-  output() const;
+  void output() const;
 
 protected:
   // Path to the mesh file.
@@ -179,8 +150,6 @@ protected:
 
   // This MPI process.
   const unsigned int mpi_rank;
-
-
 
   // TODO forcing term
   ForcingTerm forcing_term;
@@ -201,17 +170,17 @@ protected:
 
   // Quadrature formula.
   std::unique_ptr<Quadrature<dim>> quadrature;
-  std::unique_ptr<Quadrature<dim-1>> quadrature_face;
-  
+  std::unique_ptr<Quadrature<dim - 1>> quadrature_face;
+
   // DoF handler.
   DoFHandler<dim> dof_handler;
 
   // System matrix.
   TrilinosWrappers::SparseMatrix system_matrix;
 
-  //Jacobian Matrix
+  // Jacobian Matrix
   TrilinosWrappers::SparseMatrix jacobian_matrix;
-  
+
   // System right-hand side.
   TrilinosWrappers::MPI::Vector system_rhs;
 
@@ -222,11 +191,10 @@ protected:
   TrilinosWrappers::MPI::Vector solution_owned;
 
   TrilinosWrappers::MPI::Vector delta_owned;
-  
+
   // Parallel output stream.
   ConditionalOStream pcout;
 
   // DoFs owned by current process.
   IndexSet locally_owned_dofs;
 };
-
