@@ -1,7 +1,7 @@
 #pragma once
 
 #include <deal.II/base/conditional_ostream.h>
-
+#include <deal.II/base/quadrature_lib.h>
 
 #include <deal.II/distributed/fully_distributed_tria.h>
 

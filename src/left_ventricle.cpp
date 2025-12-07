@@ -30,7 +30,7 @@ void LV::setup() {
     pcout << "Initializing the finite element space" << std::endl;
 
     fe = std::make_unique<FE_SimplexP<dim>>(r);
-    fs = std::make_unique<FESystem<dim>>(fe, dim);
+    fs = std::make_unique<FESystem<dim>>(*fe, dim);
 
     pcout << "  Degree                     = " << fe->degree << std::endl;
     pcout << "  DoFs per cell              = " << fe->dofs_per_cell
@@ -103,6 +103,8 @@ void LV::assemble_system() {
                           update_values | update_gradients |
                               update_quadrature_points | update_JxW_values);
 
+  const FEValuesExtractors::Vector displacement(0);
+
   FEFaceValues<dim> fe_face_values(*fs, *quadrature_face,
                                    update_values | update_normal_vectors |
                                        update_JxW_values);
@@ -137,84 +139,79 @@ void LV::assemble_system() {
 
     cell->get_dof_indices(dof_indices);
 
-    for (int l = 0; l < dim; ++l) {
-      FEValuesExtractors::Vector component(l);
+    fe_values[displacement].get_function_gradients(solution,
+                                                solution_gradient_loc);
 
-      fe_values[component].get_function_gradients(solution, solution_gradient_loc);
+    for (unsigned int q = 0; q < n_q; ++q) {
 
-      for (unsigned int q = 0; q < n_q; ++q) {
-        
-        Tensor<2, dim> grad_u = solution_gradient_loc[q];
+      Tensor<2, dim> grad_u = solution_gradient_loc[q];
 
-        Tensor<2, dim> F = unit_symmetric_tensor<dim>();
-        F += grad_u;
+      Tensor<2, dim> F = unit_symmetric_tensor<dim>();
+      F += grad_u;
 
-        ADHelper ad_helper(dim * dim); //
-        std::vector<double> F_flat(dim * dim);
+      ADHelper ad_helper(dim * dim); //
+      std::vector<double> F_flat(dim * dim);
 
-        for(int i = 0;i < dim; ++i)
-          for(int j = 0;j < dim; ++j)
-            F_flat[i * dim + j] = F[i][j];
-        
-        ad_helper.register_independent_variables(F_flat);
-        ADNumberType W_ad = compute_W(F);
-        ad_helper.register_dependent_variable(W_ad);
-        Vector<double> P_flat(dim * dim);
-        ad_helper.compute_gradient(P_flat);
+      for (unsigned int i = 0; i < dim; ++i)
+        for (unsigned int j = 0; j < dim; ++j)
+          F_flat[i * dim + j] = F[i][j];
 
-        Tensor<2,dim> P;
-        for(int i = 0;i < dim; ++i)
-          for(int j = 0;j < dim; ++j)
-            P[i][j] = P_flat[i * dim + j];
-        
-        
-        
-        //Tensor<4, dim> dP_dF = compute_dP_dF(F);
+      ad_helper.register_independent_variables(F_flat);
+      ADNumberType W_ad = compute_W(F);
+      ad_helper.register_dependent_variable(W_ad);
+      Vector<double> P_flat(dim * dim);
+      ad_helper.compute_gradient(P_flat);
 
-        for (unsigned int i = 0; i < dofs_per_cell; ++i) {
-          cell_rhs(i) +=
-              scalar_product(P, fe_values.shape_grad(i, q)) * fe_values.JxW(q);
-        }
-        // da valutare se fare qui la matrice jacobiana a mano o con
-        // AD::sacado...
+      Tensor<2, dim> P;
+      for (unsigned int i = 0; i < dim; ++i)
+        for (unsigned int j = 0; j < dim; ++j)
+          P[i][j] = P_flat[i * dim + j];
+
+      // Tensor<4, dim> dP_dF = compute_dP_dF(F);
+
+      for (unsigned int i = 0; i < dofs_per_cell; ++i) {
+        const Tensor<2, dim> grad_phi_i = fe_values[displacement].gradient(i,q);
+        cell_rhs(i) +=
+            scalar_product(P, grad_phi_i) * fe_values.JxW(q);
       }
+      // da valutare se fare qui la matrice jacobiana a mano o con
+      // AD::sacado...
+    }
 
-      if (cell->at_boundary()) {
-        for (unsigned int f = 0; f < cell->n_faces(); ++f) {
-          if (cell->face(f)->at_boundary() &&
-              cell->face(f)->boundary_id() == 3) {
+    // if (cell->at_boundary()) {
+    //   for (unsigned int f = 0; f < cell->n_faces(); ++f) {
+    //     if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id() == 3) {
 
-            fe_face_values.reinit(cell, f);
+    //       fe_face_values.reinit(cell, f);
 
-            fe_face_values.get_function_gradients(solution,
-                                                  solution_gradient_loc_face);
-            // fe_face_values.get_function_values(solution, solution_loc_face);
+    //       fe_face_values.get_function_gradients(solution,
+    //                                             solution_gradient_loc_face);
+    //       // fe_face_values.get_function_values(solution, solution_loc_face);
 
-            for (unsigned int q = 0; q < n_q_face; ++q) {
-              {
-                Tensor<2, dim> grad_u_face = solution_gradient_loc_face[q];
+    //       for (unsigned int q = 0; q < n_q_face; ++q) {
+    //         {
+    //           Tensor<2, dim> grad_u_face = solution_gradient_loc_face[q];
 
-                Tensor<2, dim> Fh = unit_symmetric_tensor<dim>();
-                Fh += grad_u_face;
+    //           Tensor<2, dim> Fh = unit_symmetric_tensor<dim>();
+    //           Fh += grad_u_face;
 
-                Tensor<2, dim> H = det(Fh) * transpose(inverse(Fh));
+    //           Tensor<2, dim> H = det(Fh) * transpose(inverse(Fh));
 
-                double pressure = compute_pressure(
-                    q); // TODO definire la pressione in quel punto
+    //           double pressure = compute_pressure(
+    //               q); // TODO definire la pressione in quel punto
 
-                for (unsigned int i = 0; i < dofs_per_cell; ++i) {
-                  cell_rhs[i] +=
-                      pressure *
-                      scalar_product(H * fe_face_values.normal_vector(q),
-                                     fe_face_values.shape_value(i, q)) *
-                      fe_face_values.JxW(q);
+    //           for (unsigned int i = 0; i < dofs_per_cell; ++i) {
+    //             cell_rhs[i] +=
+    //                 pressure *
+    //                 scalar_product(H * fe_face_values.normal_vector(q),
+    //                                fe_face_values.shape_value(i, q)) *
+    //                 fe_face_values.JxW(q);
 
-                  // compute derivative and calculate the cell_matrix[i,j]=d
-                  // cell_rhs[i]/d u_j * (-1)
-                }
-              }
-            }
-          }
+    //             // compute derivative and calculate the cell_matrix[i,j]=d
+    //             // cell_rhs[i]/d u_j * (-1)
+    //           }
+    //         }
+    //       }
 
           // ROBIN TERM
           // mi serve sapere uh sulla faccia e onn l'ho mai trovato nei
@@ -444,9 +441,6 @@ void LV::assemble_system() {
         return psi_ad;
       }
 
-      Tensor<2, LV::dim> LV::compute_P(const Tensor<2, dim> &grad_u) const {
-        Tensor<2, dim> F = unit_symmetric_tensor<dim>() + grad_u;
-      }
 
   // Tensor<4, LV::dim> LV::compute_dP_dF(const Vector<double> &d,const
   // Point<dim> &p) const
