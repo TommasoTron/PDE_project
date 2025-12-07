@@ -83,8 +83,8 @@ public:
   };
 
   double compute_pressure(const Point<dim> &) const;
-
-  using ADHelper = AutoDiff::HelperBase<AutoDiff::NumberTypes::none>;
+  constexpr static AutoDiff::NumberTypes ADTypeCode = AutoDiff::NumberTypes::sacado_dfad_dfad;
+  using ADHelper = AutoDiff::ScalarFunction<dim, ADTypeCode, double>;
   using ADNumberType = typename ADHelper::ad_type;
   using ADTensor2 = Tensor<2,dim, ADNumberType>;
 

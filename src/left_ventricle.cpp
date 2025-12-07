@@ -137,8 +137,8 @@ void LV::assemble_system() {
 
     cell->get_dof_indices(dof_indices);
 
-    for (int i = 0; i < dim; ++i) {
-      FEValuesExtractors::Vector component(i);
+    for (int l = 0; l < dim; ++l) {
+      FEValuesExtractors::Vector component(l);
 
       fe_values[component].get_function_gradients(solution, solution_gradient_loc);
 
@@ -149,7 +149,26 @@ void LV::assemble_system() {
         Tensor<2, dim> F = unit_symmetric_tensor<dim>();
         F += grad_u;
 
-        Tensor<2, dim> P = compute_P(F);
+        ADHelper ad_helper(dim * dim); //
+        std::vector<double> F_flat(dim * dim);
+
+        for(int i = 0;i < dim; ++i)
+          for(int j = 0;j < dim; ++j)
+            F_flat[i * dim + j] = F[i][j];
+        
+        ad_helper.register_independent_variables(F_flat);
+        ADNumberType W_ad = compute_W(F);
+        ad_helper.register_dependent_variable(W_ad);
+        Vector<double> P_flat(dim * dim);
+        ad_helper.compute_gradient(P_flat);
+
+        Tensor<2,dim> P;
+        for(int i = 0;i < dim; ++i)
+          for(int j = 0;j < dim; ++j)
+            P[i][j] = P_flat[i * dim + j];
+        
+        
+        
         //Tensor<4, dim> dP_dF = compute_dP_dF(F);
 
         for (unsigned int i = 0; i < dofs_per_cell; ++i) {
