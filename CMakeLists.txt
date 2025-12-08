@@ -36,11 +36,14 @@ deal_ii_initialize_cached_variables()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wfloat-conversion -Wmissing-braces -Wnon-virtual-dtor -Wfatal-errors")
 file(GLOB_RECURSE SOURCE_FILES "src/*.cpp" "src/*.hpp")
 
+add_library(TensorUtils STATIC src/tensor_utils.cpp)
+deal_ii_setup_target(TensorUtils)
+
 add_library(LeftVentricle STATIC src/left_ventricle.cpp)
 deal_ii_setup_target(LeftVentricle)
 
 add_executable(cardiac.o src/main.cpp)
-target_link_libraries(cardiac.o LeftVentricle)
+target_link_libraries(cardiac.o LeftVentricle TensorUtils)
 deal_ii_setup_target(cardiac.o)
 
 

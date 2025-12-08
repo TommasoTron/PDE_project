@@ -7,4 +7,5 @@ int main(int argc, char* argv[]){
 
   LV model = LV("../mesh/prova_mesh.msh", 2);
   model.setup();
+  model.assemble_system();
 }

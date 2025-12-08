@@ -9,8 +9,6 @@
 #include <deal.II/dofs/dof_tools.h>
 #include <deal.II/fe/fe_values_extractors.h>
 
-
-
 #include <deal.II/fe/fe_simplex_p.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_values.h>
@@ -34,6 +32,7 @@
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
+#include <deal.II/differentiation/ad/ad_drivers.h>
 #include <deal.II/differentiation/ad/ad_helpers.h>
 
 #include <filesystem>
@@ -41,7 +40,6 @@
 #include <iostream>
 
 using namespace dealii;
-namespace AutoDiff = dealii::Differentiation::AD;
 
 /**
  * Class managing the differential problem.
@@ -50,23 +48,7 @@ class LV {
 public:
   // Physical dimension (1D, 2D, 3D)
   static constexpr unsigned int dim = 3;
-  static constexpr double mu_hook = 2.0;
-  static constexpr double k_hook = 3.0;
-
   double compute_pressure(const Point<dim> &) const;
-  constexpr static AutoDiff::NumberTypes ADTypeCode = AutoDiff::NumberTypes::sacado_dfad_dfad;
-  using ADHelper = AutoDiff::ScalarFunction<dim, ADTypeCode, double>;
-  using ADNumberType = typename ADHelper::ad_type;
-  using ADTensor2 = Tensor<2,dim, ADNumberType>;
-
-  
-  // compute P tensor (neo hooke) starting from the jacobian of u (u is a
-  // matrix!)
-  Tensor<2, dim> compute_P(const Tensor<2, dim> &grad_u) const;
-  ADNumberType compute_W(const ADTensor2& F) const;
-  
-  Tensor<4, dim> compute_dP_dF(const Vector<double> &d,
-                               const Point<dim> &p) const;
 
   // Forcing term.
   class ForcingTerm : public Function<dim> // TODO

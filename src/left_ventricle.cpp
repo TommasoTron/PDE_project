@@ -1,4 +1,5 @@
 #include "left_ventricle.hpp"
+#include "tensor_utils.hpp"
 
 void LV::setup() {
   pcout << "===============================================" << std::endl;
@@ -124,6 +125,8 @@ void LV::assemble_system() {
   std::vector<double> solution_loc(n_q);
   std::vector<Tensor<2, dim>> solution_gradient_loc(n_q);
 
+  TensorUtils t_utils;
+  
   for (const auto &cell : dof_handler.active_cell_iterators()) {
     // If current cell is not owned locally, we skip it.
     if (!cell->is_locally_owned())
@@ -145,30 +148,14 @@ void LV::assemble_system() {
     for (unsigned int q = 0; q < n_q; ++q) {
 
       Tensor<2, dim> grad_u = solution_gradient_loc[q];
-
       Tensor<2, dim> F = unit_symmetric_tensor<dim>();
       F += grad_u;
 
-      ADHelper ad_helper(dim * dim); //
-      std::vector<double> F_flat(dim * dim);
-
-      for (unsigned int i = 0; i < dim; ++i)
-        for (unsigned int j = 0; j < dim; ++j)
-          F_flat[i * dim + j] = F[i][j];
-
-      ad_helper.register_independent_variables(F_flat);
-      ADNumberType W_ad = compute_W(F);
-      ad_helper.register_dependent_variable(W_ad);
-      Vector<double> P_flat(dim * dim);
-      ad_helper.compute_gradient(P_flat);
-
       Tensor<2, dim> P;
-      for (unsigned int i = 0; i < dim; ++i)
-        for (unsigned int j = 0; j < dim; ++j)
-          P[i][j] = P_flat[i * dim + j];
-
-      // Tensor<4, dim> dP_dF = compute_dP_dF(F);
-
+      Tensor<4, dim> dP_dF;
+      t_utils.compute_tensors(F, P, dP_dF);
+      
+      
       for (unsigned int i = 0; i < dofs_per_cell; ++i) {
         const Tensor<2, dim> grad_phi_i = fe_values[displacement].gradient(i,q);
         cell_rhs(i) +=
@@ -430,17 +417,7 @@ void LV::assemble_system() {
       //     return P;
       //   }
 
-      LV::ADNumberType LV::compute_W(const LV::ADTensor2 &F) const {
-        const ADNumberType J_ad = determinant(F);
-        const ADTensor2 C_ad = transpose(F) * F;
-        const ADNumberType I1_ad = trace(C_ad);
-        ADNumberType psi_ad =
-            (mu_hook / 2.0) * (I1_ad * std::pow(J_ad, -2.0 / 3.0) - 3.0);
-        psi_ad += (k_hook / 2.0) * std::pow(J_ad - 1.0, 2.0);
-
-        return psi_ad;
-      }
-
+      
 
   // Tensor<4, LV::dim> LV::compute_dP_dF(const Vector<double> &d,const
   // Point<dim> &p) const
