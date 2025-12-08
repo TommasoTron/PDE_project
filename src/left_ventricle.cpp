@@ -96,7 +96,7 @@ void LV::assemble_system() {
 
   pcout << "  Assembling the linear system" << std::endl;
 
-  const unsigned int dofs_per_cell = fe->dofs_per_cell;
+  const unsigned int dofs_per_cell = fs->dofs_per_cell;
   const unsigned int n_q = quadrature->size();
   const unsigned int n_q_face = quadrature_face->size();
 
