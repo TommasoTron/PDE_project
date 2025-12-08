@@ -1,6 +1,10 @@
 #include "left_ventricle.hpp"
 #include <iostream>
 
+
 int main(int argc, char* argv[]){
-  std::cout << "hello world!" << std::endl;
+  Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
+
+  LV model = LV("../mesh/prova_mesh.msh", 4);
+  model.setup();
 }
