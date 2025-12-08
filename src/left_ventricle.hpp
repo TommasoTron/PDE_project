@@ -53,34 +53,6 @@ public:
   static constexpr double mu_hook = 2.0;
   static constexpr double k_hook = 3.0;
 
-  struct input_data {
-
-    double b_f; // stretch in the fiber direction
-
-    double b_s; // stretch in the tangential direction
-
-    double b_n; // normal direction
-
-    Tensor<1, dim> f0; // vector in the fiber direction
-    Tensor<1, dim> s0; // vector in the sheet direction
-    Tensor<1, dim> n0; // vector in the normal direction
-
-    // TODO add direction different from the 3 main ones
-
-    Tensor<2, dim> F; // deformation gradient
-
-    double Ta; // active tension
-
-    input_data(const Tensor<2, dim> &deformation_gradient_,
-               const Tensor<1, dim> &fiber_direction_,
-               const Tensor<1, dim> &sheet_direction_,
-               const Tensor<1, dim> &normal_direction_, double active_tension,
-               double bf, double bs, double bn)
-        : F(deformation_gradient_), f0(fiber_direction_), s0(sheet_direction_),
-          n0(normal_direction_), Ta(active_tension), b_f(bf), b_s(bs), b_n(bn) {
-    }
-  };
-
   double compute_pressure(const Point<dim> &) const;
   constexpr static AutoDiff::NumberTypes ADTypeCode = AutoDiff::NumberTypes::sacado_dfad_dfad;
   using ADHelper = AutoDiff::ScalarFunction<dim, ADTypeCode, double>;
