@@ -120,7 +120,7 @@ void LV::assemble_system() {
 
   // necessary for Robin (non sono sicuro servano )
   std::vector<double> solution_loc_face(n_q_face);
-  std::vector<Tensor<1, dim>> solution_gradient_loc_face(n_q_face);
+  std::vector<Tensor<2, dim>> solution_gradient_loc_face(n_q_face);
 
   std::vector<double> solution_loc(n_q);
   std::vector<Tensor<2, dim>> solution_gradient_loc(n_q);
@@ -161,45 +161,48 @@ void LV::assemble_system() {
         cell_rhs(i) +=
             scalar_product(P, grad_phi_i) * fe_values.JxW(q);
       }
-      // da valutare se fare qui la matrice jacobiana a mano o con
-      // AD::sacado...
     }
 
-    // if (cell->at_boundary()) {
-    //   for (unsigned int f = 0; f < cell->n_faces(); ++f) {
-    //     if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id() == 3) {
+    if (cell->at_boundary()) {
+      for (unsigned int f = 0; f < cell->n_faces(); ++f) {
+        if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id() == 3) {
 
-    //       fe_face_values.reinit(cell, f);
+          fe_face_values.reinit(cell, f);
 
-    //       fe_face_values.get_function_gradients(solution,
-    //                                             solution_gradient_loc_face);
-    //       // fe_face_values.get_function_values(solution, solution_loc_face);
+          fe_face_values[displacement].get_function_gradients(solution,
+                                                solution_gradient_loc_face);
+          // fe_face_values.get_function_values(solution, solution_loc_face);
 
-    //       for (unsigned int q = 0; q < n_q_face; ++q) {
-    //         {
-    //           Tensor<2, dim> grad_u_face = solution_gradient_loc_face[q];
+          for (unsigned int q = 0; q < n_q_face; ++q) {
+            {
+              Tensor<2, dim> grad_u_face = solution_gradient_loc_face[q];
 
-    //           Tensor<2, dim> Fh = unit_symmetric_tensor<dim>();
-    //           Fh += grad_u_face;
+              Tensor<2, dim> Fh = unit_symmetric_tensor<dim>();
+              Fh += grad_u_face;
 
-    //           Tensor<2, dim> H = det(Fh) * transpose(inverse(Fh));
+              Tensor<2, dim> H = determinant(Fh) * transpose(invert(Fh));
 
-    //           double pressure = compute_pressure(
-    //               q); // TODO definire la pressione in quel punto
+              double pressure = 1.0;
+              for (unsigned int i = 0; i < dofs_per_cell; ++i) {
+                const Tensor<1,dim> term1 = H * fe_face_values.normal_vector(q);
+                const unsigned int component_i = fs->system_to_component_index(i).first;
+                const double phi_value = fe_face_values.shape_value(i, q);
 
-    //           for (unsigned int i = 0; i < dofs_per_cell; ++i) {
-    //             cell_rhs[i] +=
-    //                 pressure *
-    //                 scalar_product(H * fe_face_values.normal_vector(q),
-    //                                fe_face_values.shape_value(i, q)) *
-    //                 fe_face_values.JxW(q);
+                cell_rhs(i) += term1[component_i] * phi_value * fe_face_values.JxW(q);
+                // cell_rhs[i] +=
+                //     pressure *
+                //     scalar_product(H * fe_face_values.normal_vector(q),
+                //                    fe_face_values.shape_value(i, q)) *
+                //     fe_face_values.JxW(q);
 
-    //             // compute derivative and calculate the cell_matrix[i,j]=d
-    //             // cell_rhs[i]/d u_j * (-1)
-    //           }
-    //         }
-    //       }
-
+                // compute derivative and calculate the cell_matrix[i,j]=d
+                // cell_rhs[i]/d u_j * (-1)
+              }
+            }
+          }
+        }
+      }
+    }
           // ROBIN TERM
           // mi serve sapere uh sulla faccia e onn l'ho mai trovato nei
           // laboratori quindi boh
