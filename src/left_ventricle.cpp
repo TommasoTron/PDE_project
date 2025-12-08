@@ -104,7 +104,7 @@ void LV::assemble_system() {
                           update_values | update_gradients |
                               update_quadrature_points | update_JxW_values);
 
-  const FEValuesExtractors::Vector displacement(0);
+  const FEValuesExtractors::Vector vec_index(0);
 
   FEFaceValues<dim> fe_face_values(*fs, *quadrature_face,
                                    update_values | update_normal_vectors |
@@ -126,7 +126,7 @@ void LV::assemble_system() {
   std::vector<Tensor<2, dim>> solution_gradient_loc(n_q);
 
   TensorUtils t_utils;
-  
+
   for (const auto &cell : dof_handler.active_cell_iterators()) {
     // If current cell is not owned locally, we skip it.
     if (!cell->is_locally_owned())
@@ -142,8 +142,8 @@ void LV::assemble_system() {
 
     cell->get_dof_indices(dof_indices);
 
-    fe_values[displacement].get_function_gradients(solution,
-                                                solution_gradient_loc);
+    fe_values[vec_index].get_function_gradients(solution,
+                                                   solution_gradient_loc);
 
     for (unsigned int q = 0; q < n_q; ++q) {
 
@@ -154,12 +154,11 @@ void LV::assemble_system() {
       Tensor<2, dim> P;
       Tensor<4, dim> dP_dF;
       t_utils.compute_tensors(F, P, dP_dF);
-      
-      
+
       for (unsigned int i = 0; i < dofs_per_cell; ++i) {
-        const Tensor<2, dim> grad_phi_i = fe_values[displacement].gradient(i,q);
-        cell_rhs(i) +=
-            scalar_product(P, grad_phi_i) * fe_values.JxW(q);
+        const Tensor<2, dim> grad_phi_i =
+            fe_values[vec_index].gradient(i, q);
+        cell_rhs(i) += scalar_product(P, grad_phi_i) * fe_values.JxW(q);
       }
     }
 
@@ -169,8 +168,8 @@ void LV::assemble_system() {
 
           fe_face_values.reinit(cell, f);
 
-          fe_face_values[displacement].get_function_gradients(solution,
-                                                solution_gradient_loc_face);
+          fe_face_values[vec_index].get_function_gradients(
+              solution, solution_gradient_loc_face);
           // fe_face_values.get_function_values(solution, solution_loc_face);
 
           for (unsigned int q = 0; q < n_q_face; ++q) {
@@ -184,11 +183,14 @@ void LV::assemble_system() {
 
               double pressure = 1.0;
               for (unsigned int i = 0; i < dofs_per_cell; ++i) {
-                const Tensor<1,dim> term1 = H * fe_face_values.normal_vector(q);
-                const unsigned int component_i = fs->system_to_component_index(i).first;
+                const Tensor<1, dim> term1 =
+                    H * fe_face_values.normal_vector(q);
+                const unsigned int component_i =
+                    fs->system_to_component_index(i).first;
                 const double phi_value = fe_face_values.shape_value(i, q);
 
-                cell_rhs(i) += term1[component_i] * phi_value * fe_face_values.JxW(q);
+                cell_rhs(i) +=
+                    term1[component_i] * phi_value * fe_face_values.JxW(q);
                 // cell_rhs[i] +=
                 //     pressure *
                 //     scalar_product(H * fe_face_values.normal_vector(q),
@@ -203,235 +205,178 @@ void LV::assemble_system() {
         }
       }
     }
-          // ROBIN TERM
-          // mi serve sapere uh sulla faccia e onn l'ho mai trovato nei
-          // laboratori quindi boh
+    // ROBIN TERM
+    // mi serve sapere uh sulla faccia e onn l'ho mai trovato nei
+    // laboratori quindi boh
 
-          /*
-          if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id()== 1)
-          {
+    /*
+    if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id()== 1)
+    {
 
-            fe_face_values.reinit(cell,f);
+      fe_face_values.reinit(cell,f);
 
-            fe_face_values.get_function_values(solution, solution_loc_face);
+      fe_face_values.get_function_values(solution, solution_loc_face);
 
-            for (unsigned int q=0; q<n_q_face;++q){
+      for (unsigned int q=0; q<n_q_face;++q){
 
-            for (unsigned int i=0;i<dofs_per_cell;++i){
-              cell_rhs(i) += alpha * solution_loc_face[q] *
-                                   fe_face_values.shape_value(i, q) *
-                                   fe_face_values.JxW(q);
-                                    }
+      for (unsigned int i=0;i<dofs_per_cell;++i){
+        cell_rhs(i) += alpha * solution_loc_face[q] *
+                             fe_face_values.shape_value(i, q) *
+                             fe_face_values.JxW(q);
+                              }
 
-            for (unsigned int i=0;i<dofs_per_cell;++i){
-              for (unsigned int j=0;j<dofs_per_cell;++j){
-                cell_matrix(i,j)+= alpha*fe_face_values.shape_value(i,q)*
-                                  fe_face_values.shape_value(j,q)*
-                                  fe_face_values.JxW(q);
-                                    }
-                                  }
-              }
-            }
-    */
-
-          cell->get_dof_indices(dof_indices);
-
-          jacobian_matrix.add(dof_indices, cell_matrix);
-          system_rhs.add(dof_indices, cell_rhs);
+      for (unsigned int i=0;i<dofs_per_cell;++i){
+        for (unsigned int j=0;j<dofs_per_cell;++j){
+          cell_matrix(i,j)+= alpha*fe_face_values.shape_value(i,q)*
+                            fe_face_values.shape_value(j,q)*
+                            fe_face_values.JxW(q);
+                              }
+                            }
         }
       }
-      //   jacobian_matrix.compress(VectorOperation::add);
-      //   system_rhs.compress(VectorOperation::add);
+*/
 
-      //   // Dirichlet Boundary conditions.
+    cell->get_dof_indices(dof_indices);
 
-      //     std::map<types::global_dof_index, double> boundary_values;
+    jacobian_matrix.add(dof_indices, cell_matrix);
+    system_rhs.add(dof_indices, cell_rhs);
+  }
+}
+//   jacobian_matrix.compress(VectorOperation::add);
+//   system_rhs.compress(VectorOperation::add);
 
-      //     std::map<types::boundary_id, const Function<dim> *>
-      //     boundary_functions;
+//   // Dirichlet Boundary conditions.
 
-      //     boundary_functions[2] = &function_g;
+//     std::map<types::global_dof_index, double> boundary_values;
 
-      //     VectorTools::interpolate_boundary_values(dof_handler,
-      //                                              boundary_functions,
-      //                                              boundary_values);
+//     std::map<types::boundary_id, const Function<dim> *>
+//     boundary_functions;
 
-      //     MatrixTools::apply_boundary_values(
-      //       boundary_values, system_matrix, solution, system_rhs, true);
-      //     }
-      //   }
-      // }
+//     boundary_functions[2] = &function_g;
 
-      // void
-      // LV::solve_linear_system(){
+//     VectorTools::interpolate_boundary_values(dof_handler,
+//                                              boundary_functions,
+//                                              boundary_values);
 
-      //    SolverControl solver_control(1000, 1e-6 * system_rhs.l2_norm());
+//     MatrixTools::apply_boundary_values(
+//       boundary_values, system_matrix, solution, system_rhs, true);
+//     }
+//   }
+// }
 
-      //   SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control);
-      //   TrilinosWrappers::PreconditionSSOR      preconditioner;
-      //   preconditioner.initialize(
-      //     jacobian_matrix,
-      //     TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
+void LV::solve_linear_system() {
 
-      //   solver.solve(jacobian_matrix, delta_owned, system_rhs,
-      //   preconditioner); pcout << "  " << solver_control.last_step() << "
-      //   GMRES iterations" << std::endl;
-      // }
+  SolverControl solver_control(1000, 1e-6 * system_rhs.l2_norm());
 
-      // void
-      // LV::solve_newton()
-      // {
-      //   const unsigned int n_max_iters        = 1000;
-      //   const double       residual_tolerance = 1e-6;
+  SolverGMRES<TrilinosWrappers::MPI::Vector> solver(solver_control);
+  TrilinosWrappers::PreconditionSSOR preconditioner;
+  preconditioner.initialize(
+      jacobian_matrix, TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
 
-      //   unsigned int n_iter        = 0;
-      //   double       residual_norm = residual_tolerance + 1;
+  solver.solve(jacobian_matrix, delta_owned, system_rhs, preconditioner);
+  pcout << "  " << solver_control.last_step()
+        << " GMRES iterations " << std::endl;
+}
 
-      //   // We apply the boundary conditions to the initial guess (which is
-      //   stored in
-      //   // solution_owned and solution).
-      //   {
-      //     IndexSet dirichlet_dofs =
-      //     DoFTools::extract_boundary_dofs(dof_handler); dirichlet_dofs =
-      //     dirichlet_dofs & dof_handler.locally_owned_dofs();
+void LV::solve_newton() {
+  const unsigned int n_max_iters = 1000;
+  const double residual_tolerance = 1e-6;
 
-      //     function_g.set_time(time);
+  unsigned int n_iter = 0;
+  double residual_norm = residual_tolerance + 1;
 
-      //     TrilinosWrappers::MPI::Vector vector_dirichlet(solution_owned);
-      //     VectorTools::interpolate(dof_handler, function_g,
-      //     vector_dirichlet);
+  // We apply the boundary conditions to the initial guess (which is  stored in
+  // solution_owned and solution).
+  {
+    IndexSet dirichlet_dofs = DoFTools::extract_boundary_dofs(dof_handler);
+    dirichlet_dofs = dirichlet_dofs & dof_handler.locally_owned_dofs();
 
-      //     for (const auto &idx : dirichlet_dofs)
-      //       solution_owned[idx] = vector_dirichlet[idx];
+    TrilinosWrappers::MPI::Vector vector_dirichlet(solution_owned);
+    VectorTools::interpolate(dof_handler, function_g, vector_dirichlet);
 
-      //     solution_owned.compress(VectorOperation::insert);
-      //     solution = solution_owned;
-      //   }
+    for (const auto &idx : dirichlet_dofs)
+      solution_owned[idx] = vector_dirichlet[idx];
 
-      //   while (n_iter < n_max_iters && residual_norm > residual_tolerance)
-      //     {
-      //       assemble_system();
-      //       residual_norm = system_rhs.l2_norm();
+    solution_owned.compress(VectorOperation::insert);
+    solution = solution_owned;
+  }
 
-      //       pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
-      //             << " - ||r|| = " << std::scientific << std::setprecision(6)
-      //             << residual_norm << std::flush;
+  while (n_iter < n_max_iters && residual_norm > residual_tolerance) {
+    assemble_system();
+    residual_norm = system_rhs.l2_norm();
 
-      //       // We actually solve the system only if the residual is larger
-      //       than the
-      //       // tolerance.
-      //       if (residual_norm > residual_tolerance)
-      //         {
-      //           solve_linear_system();
+    pcout << "  Newton iteration " << n_iter << "/" << n_max_iters
+          << " - ||r|| = " << std::scientific << std::setprecision(6)
+          << residual_norm << std::flush;
 
-      //           solution_owned += delta_owned;
-      //           solution = solution_owned;
-      //         }
-      //       else
-      //         {
-      //           pcout << " < tolerance" << std::endl;
-      //         }
+    if (residual_norm > residual_tolerance) {
+      solve_linear_system();
 
-      //       ++n_iter;
-      //     }
-      // }
+      solution_owned += delta_owned;
+      solution = solution_owned;
+    } else {
+      pcout << " < tolerance" << std::endl;
+    }
 
-      // void
-      // LV::output() const
-      // {
-      //   pcout << "===============================================" <<
-      //   std::endl;
+    ++n_iter;
+  }
+}
 
-      //   IndexSet locally_relevant_dofs;
-      //   DoFTools::extract_locally_relevant_dofs(dof_handler,
-      //   locally_relevant_dofs);
+// void
+// LV::output() const
+// {
+//   pcout << "===============================================" <<
+//   std::endl;
 
-      //   // To correctly export the solution, each process needs to know the
-      //   solution
-      //   // DoFs it owns, and the ones corresponding to elements adjacent to
-      //   the ones
-      //   // it owns (the locally relevant DoFs, or ghosts). We create a vector
-      //   to store
-      //   // them.
-      //   TrilinosWrappers::MPI::Vector solution_ghost(locally_owned_dofs,
-      //                                                locally_relevant_dofs,
-      //                                                MPI_COMM_WORLD);
+//   IndexSet locally_relevant_dofs;
+//   DoFTools::extract_locally_relevant_dofs(dof_handler,
+//   locally_relevant_dofs);
 
-      //   // This performs the necessary communication so that the locally
-      //   relevant DoFs
-      //   // are received from other processes and stored inside
-      //   solution_ghost. solution_ghost = solution;
+//   // To correctly export the solution, each process needs to know the
+//   solution
+//   // DoFs it owns, and the ones corresponding to elements adjacent to
+//   the ones
+//   // it owns (the locally relevant DoFs, or ghosts). We create a vector
+//   to store
+//   // them.
+//   TrilinosWrappers::MPI::Vector solution_ghost(locally_owned_dofs,
+//                                                locally_relevant_dofs,
+//                                                MPI_COMM_WORLD);
 
-      //   // Then, we build and fill the DataOut class as usual.
-      //   DataOut<dim> data_out;
-      //   data_out.add_data_vector(dof_handler, solution_ghost, "solution");
+//   // This performs the necessary communication so that the locally
+//   relevant DoFs
+//   // are received from other processes and stored inside
+//   solution_ghost. solution_ghost = solution;
 
-      //   // We also add a vector to represent the parallel partitioning of the
-      //   mesh. std::vector<unsigned int> partition_int(mesh.n_active_cells());
-      //   GridTools::get_subdomain_association(mesh, partition_int);
-      //   const Vector<double> partitioning(partition_int.begin(),
-      //   partition_int.end()); data_out.add_data_vector(partitioning,
-      //   "partitioning");
+//   // Then, we build and fill the DataOut class as usual.
+//   DataOut<dim> data_out;
+//   data_out.add_data_vector(dof_handler, solution_ghost, "solution");
 
-      //   data_out.build_patches();
+//   // We also add a vector to represent the parallel partitioning of the
+//   mesh. std::vector<unsigned int> partition_int(mesh.n_active_cells());
+//   GridTools::get_subdomain_association(mesh, partition_int);
+//   const Vector<double> partitioning(partition_int.begin(),
+//   partition_int.end()); data_out.add_data_vector(partitioning,
+//   "partitioning");
 
-      //   const std::filesystem::path mesh_path(mesh_file_name);
-      //   const std::string output_file_name = "output-" +
-      //   mesh_path.stem().string();
+//   data_out.build_patches();
 
-      //   // Finally, we need to write in a format that supports parallel
-      //   output. This
-      //   // can be achieved in multiple ways (e.g. XDMF/H5). We choose
-      //   VTU/PVTU files,
-      //   // because the interface is nice and it is quite robust.
-      //   data_out.write_vtu_with_pvtu_record("./",
-      //                                       output_file_name,
-      //                                       0,
-      //                                       MPI_COMM_WORLD);
+//   const std::filesystem::path mesh_path(mesh_file_name);
+//   const std::string output_file_name = "output-" +
+//   mesh_path.stem().string();
 
-      //   pcout << "Output written to " << output_file_name << std::endl;
+//   // Finally, we need to write in a format that supports parallel
+//   output. This
+//   // can be achieved in multiple ways (e.g. XDMF/H5). We choose
+//   VTU/PVTU files,
+//   // because the interface is nice and it is quite robust.
+//   data_out.write_vtu_with_pvtu_record("./",
+//                                       output_file_name,
+//                                       0,
+//                                       MPI_COMM_WORLD);
 
-      //   pcout << "===============================================" <<
-      //   std::endl;
-      // }
+//   pcout << "Output written to " << output_file_name << std::endl;
 
-      // //TODO controllare, ci sono tante formulazioni, vedere come è quella
-      // degli articoli. Questa è quella che mi sembrava più completa
-      //   Tensor<2,dim> compute_P_neo_hooke(const Tensor<2,dim> F) const
-      //   {
-      //     const double mu=5.0;
-      //     const double lambda =10.0;
-
-      //     const double J=determinant(F);
-
-      //     const double k=0.05;
-
-      //     Tensor<2,dim> P=mu*std::pow(j,-2.0/3.0)*F;
-
-      //     Tensor<2,dim> C= transpose(F)*F;
-      //     const double term1=trace(C);
-
-      //     Tensor<2,dim> C_inv=inverse(C);
-
-      //     P=P-term1*C_inv/3.0;
-
-      //     P=P+k*(J-1)*J * C_inv;
-
-      //     return P;
-      //   }
-
-      
-
-  // Tensor<4, LV::dim> LV::compute_dP_dF(const Vector<double> &d,const
-  // Point<dim> &p) const
-  // {
-  //     Tensor<4, dim> tangent;
-  //     //TODO
-  //     //tensore tangente dP/dF (chissà)
-  //     return tangent;
-  // }
-
-  // double compute_pressure(const Point<dim>& p) const
-  // {
-  //   return 10.0; //random value just to have a compute pressure funcion;
-  // }
+//   pcout << "===============================================" <<
+//   std::endl;
+// }
