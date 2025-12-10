@@ -159,7 +159,27 @@ void LV::assemble_system() {
         const Tensor<2, dim> grad_phi_i =
             fe_values[vec_index].gradient(i, q);
         cell_rhs(i) += scalar_product(P, grad_phi_i) * fe_values.JxW(q);
+      
+      
+      for (unsigned int j=0;j<dofs_per_cell;++j){
+        const Tensor<2, dim> grad_phi_j =
+            fe_values[vec_index].gradient(j, q);
+
+        for (unsigned int a=0;a<dim;++a){
+          for (unsigned int b=0;b<dim;++b){
+            for (unsigned int c=0;c<dim;++c){
+              for (unsigned int d=0;d<dim;++d){
+                cell_matrix(i,j)+=
+                  dP_dF[a][b][c][d]*
+                  grad_phi_j[c][d]*
+                  grad_phi_i[a][b]*
+                  fe_values.JxW(q);
+              }
+            }
+          }
+        }
       }
+    }
     }
 
     if (cell->at_boundary()) {
@@ -178,24 +198,64 @@ void LV::assemble_system() {
 
               Tensor<2, dim> Fh = unit_symmetric_tensor<dim>();
               Fh += grad_u_face;
+              Tensor<2, dim> F_inv_T = transpose(invert(Fh));
 
-              Tensor<2, dim> H = determinant(Fh) * transpose(invert(Fh));
+              Tensor<2, dim> H = determinant(Fh) * F_inv_T;
+
+
 
               double pressure = 1.0;
               for (unsigned int i = 0; i < dofs_per_cell; ++i) {
                 const Tensor<1, dim> term1 =
-                    H * fe_face_values.normal_vector(q);
+                    pressure* (H * fe_face_values.normal_vector(q));
                 const unsigned int component_i =
                     fs->system_to_component_index(i).first;
-                const double phi_value = fe_face_values.shape_value(i, q);
+                const double phi_i = fe_face_values.shape_value(i, q);
 
                 cell_rhs(i) +=
-                    term1[component_i] * phi_value * fe_face_values.JxW(q);
-                // cell_rhs[i] +=
-                //     pressure *
-                //     scalar_product(H * fe_face_values.normal_vector(q),
-                //                    fe_face_values.shape_value(i, q)) *
-                //     fe_face_values.JxW(q);
+                    term1[component_i] * phi_i * fe_face_values.JxW(q);
+
+                for (unsigned int j = 0; j < dofs_per_cell; ++j) {
+                  const Tensor<2, dim> grad_phi_j =
+                      fe_face_values[vec_index].gradient(j, q);
+
+                  Tensor<2,dim> dF=grad_phi_j;
+
+                double scalar = 0.0;
+
+                for (unsigned int a=0;a<dim;++a){
+                  for (unsigned int b=0;b<dim;++b){
+                      scalar +=
+                        F_inv_T[a][b]*dF[a][b];
+                  }
+                }
+
+                Tensor <2,dim> dH;
+                //dH= pressure*(F^(-T): (grad_phi_j))*I-  F^(-T)* (grad_phi_j)^T * F^(-T) *det(F)*normal 
+                for (unsigned int a=0;a<dim;++a){
+                  for (unsigned int b=0;b<dim;++b){
+                      dH[a][b]=scalar * ((a==b)?1.0:0.0); //scalar*identity
+                      for (unsigned int c=0;c<dim;++c){
+                        for (unsigned int d=0;d<dim;++d)
+                        dH[a][b]-= F_inv_T[a][c] * dF[b][c];
+                      }
+                  }
+                }
+
+                Tensor <1,dim> bob;
+                for (unsigned int a=0;a<dim;++a){
+                  for (unsigned int b=0;b<dim;++b){
+                    bob[a]+= dH[a][b]* fe_face_values.normal_vector(q)[b];
+                  }
+                }
+
+                cell_matrix(i,j)+=
+                  pressure* bob[component_i] *
+                  phi_i *
+                  fe_face_values.JxW(q);
+
+                 }
+                
 
                 // compute derivative and calculate the cell_matrix[i,j]=d
                 // cell_rhs[i]/d u_j * (-1)
