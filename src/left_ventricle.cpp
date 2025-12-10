@@ -34,8 +34,11 @@ void LV::setup() {
     fs = std::make_unique<FESystem<dim>>(*fe, dim);
 
     pcout << "  Degree                     = " << fe->degree << std::endl;
-    pcout << "  DoFs per cell              = " << fe->dofs_per_cell
+    pcout << "  DoFs per cell              = " << fs->dofs_per_cell
           << std::endl;
+
+    check((fs->dofs_per_cell == expected_dofs_per_cell),
+          "this needs to be fixed some how");
 
     quadrature = std::make_unique<QGaussSimplex<dim>>(fe->degree + 1);
     quadrature_face = std::make_unique<QGaussSimplex<dim - 1>>(fe->degree + 1);
@@ -91,10 +94,12 @@ void LV::setup() {
   }
 }
 
-void LV::assemble_system() {
+void LV::assemble_system() {}
+
+void LV::compute_rhs() {
   pcout << "===============================================" << std::endl;
 
-  pcout << "  Assembling the linear system" << std::endl;
+  pcout << "  Computing Right Hand Side" << std::endl;
 
   const unsigned int dofs_per_cell = fs->dofs_per_cell;
   const unsigned int n_q = quadrature->size();
@@ -122,121 +127,115 @@ void LV::assemble_system() {
   std::vector<double> solution_loc_face(n_q_face);
   std::vector<Tensor<2, dim>> solution_gradient_loc_face(n_q_face);
 
-  std::vector<double> solution_loc(n_q);
   std::vector<Tensor<2, dim>> solution_gradient_loc(n_q);
 
   TensorUtils t_utils;
 
   for (const auto &cell : dof_handler.active_cell_iterators()) {
-    // If current cell is not owned locally, we skip it.
     if (!cell->is_locally_owned())
       continue;
 
-    // On all other cells (which are owned by current process), we perform the
-    // assembly as usual.
-
     fe_values.reinit(cell);
 
-    cell_matrix = 0.0;
     cell_rhs = 0.0;
 
     cell->get_dof_indices(dof_indices);
 
     fe_values[vec_index].get_function_gradients(solution,
-                                                   solution_gradient_loc);
+                                                solution_gradient_loc);
 
-    for (unsigned int q = 0; q < n_q; ++q) {
+    Vector<double> local_solution(dof_indices.size());
+    for (int i = 0; i < dof_indices.size(); ++i)
+      local_solution[i] = solution(dof_indices[i]);
 
-      Tensor<2, dim> grad_u = solution_gradient_loc[q];
-      Tensor<2, dim> F = unit_symmetric_tensor<dim>();
-      F += grad_u;
+    auto local_rhs_assembler =
+        [&]() {
+          for (unsigned int q = 0; q < n_q; ++q) {
 
-      Tensor<2, dim> P;
-      Tensor<4, dim> dP_dF;
-      t_utils.compute_tensors(F, P, dP_dF);
+            Tensor<2, dim> grad_u = solution_gradient_loc[q];
+            Tensor<2, dim> F = unit_symmetric_tensor<dim>();
+            F += grad_u;
 
-      for (unsigned int i = 0; i < dofs_per_cell; ++i) {
-        const Tensor<2, dim> grad_phi_i =
-            fe_values[vec_index].gradient(i, q);
-        cell_rhs(i) += scalar_product(P, grad_phi_i) * fe_values.JxW(q);
-      }
-    }
+            Tensor<2, dim> P;
+            Tensor<4, dim> dP_dF;
+            t_utils.compute_tensors(F, P, dP_dF);
 
-    if (cell->at_boundary()) {
-      for (unsigned int f = 0; f < cell->n_faces(); ++f) {
-        if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id() == 3) {
+            for (unsigned int i = 0; i < dofs_per_cell; ++i) {
+              const Tensor<2, dim> grad_phi_i =
+                  fe_values[vec_index].gradient(i, q);
+              cell_rhs(i) += scalar_product(P, grad_phi_i) * fe_values.JxW(q);
+            }
+          }
 
-          fe_face_values.reinit(cell, f);
+          if (cell->at_boundary()) {
+            for (unsigned int f = 0; f < cell->n_faces(); ++f) {
+              if (cell->face(f)->at_boundary() &&
+                  cell->face(f)->boundary_id() == 3) {
+                fe_face_values.reinit(cell, f);
+                fe_face_values[vec_index].get_function_gradients(
+                    solution, solution_gradient_loc_face);
 
-          fe_face_values[vec_index].get_function_gradients(
-              solution, solution_gradient_loc_face);
-          // fe_face_values.get_function_values(solution, solution_loc_face);
+                for (unsigned int q = 0; q < n_q_face; ++q) {
+                  {
+                    Tensor<2, dim> grad_u_face = solution_gradient_loc_face[q];
 
-          for (unsigned int q = 0; q < n_q_face; ++q) {
-            {
-              Tensor<2, dim> grad_u_face = solution_gradient_loc_face[q];
+                    Tensor<2, dim> Fh = unit_symmetric_tensor<dim>();
+                    Fh += grad_u_face;
 
-              Tensor<2, dim> Fh = unit_symmetric_tensor<dim>();
-              Fh += grad_u_face;
+                    Tensor<2, dim> H = determinant(Fh) * transpose(invert(Fh));
 
-              Tensor<2, dim> H = determinant(Fh) * transpose(invert(Fh));
+                    double pressure = 1.0;
+                    for (unsigned int i = 0; i < dofs_per_cell; ++i) {
+                      const Tensor<1, dim> term1 =
+                          H * fe_face_values.normal_vector(q);
+                      const unsigned int component_i =
+                          fs->system_to_component_index(i).first;
+                      const double phi_value = fe_face_values.shape_value(i, q);
 
-              double pressure = 1.0;
-              for (unsigned int i = 0; i < dofs_per_cell; ++i) {
-                const Tensor<1, dim> term1 =
-                    H * fe_face_values.normal_vector(q);
-                const unsigned int component_i =
-                    fs->system_to_component_index(i).first;
-                const double phi_value = fe_face_values.shape_value(i, q);
-
-                cell_rhs(i) +=
-                    term1[component_i] * phi_value * fe_face_values.JxW(q);
-                // cell_rhs[i] +=
-                //     pressure *
-                //     scalar_product(H * fe_face_values.normal_vector(q),
-                //                    fe_face_values.shape_value(i, q)) *
-                //     fe_face_values.JxW(q);
-
-                // compute derivative and calculate the cell_matrix[i,j]=d
-                // cell_rhs[i]/d u_j * (-1)
+                      cell_rhs(i) += term1[component_i] * phi_value *
+                                     fe_face_values.JxW(q);
+                    }
+                  }
+                }
               }
             }
           }
-        }
-      }
-    }
-    // ROBIN TERM
-    // mi serve sapere uh sulla faccia e onn l'ho mai trovato nei
-    // laboratori quindi boh
+        };
 
-    /*
-    if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id()== 1)
-    {
+        local_rhs_assembler();
 
-      fe_face_values.reinit(cell,f);
+        // ROBIN TERM
+        // mi serve sapere uh sulla faccia e onn l'ho mai trovato nei
+        // laboratori quindi boh
 
-      fe_face_values.get_function_values(solution, solution_loc_face);
+        /*
+        if (cell->face(f)->at_boundary() && cell->face(f)->boundary_id()== 1)
+        {
 
-      for (unsigned int q=0; q<n_q_face;++q){
+          fe_face_values.reinit(cell,f);
 
-      for (unsigned int i=0;i<dofs_per_cell;++i){
-        cell_rhs(i) += alpha * solution_loc_face[q] *
-                             fe_face_values.shape_value(i, q) *
-                             fe_face_values.JxW(q);
-                              }
+          fe_face_values.get_function_values(solution, solution_loc_face);
 
-      for (unsigned int i=0;i<dofs_per_cell;++i){
-        for (unsigned int j=0;j<dofs_per_cell;++j){
-          cell_matrix(i,j)+= alpha*fe_face_values.shape_value(i,q)*
-                            fe_face_values.shape_value(j,q)*
-                            fe_face_values.JxW(q);
-                              }
-                            }
-        }
-      }
-*/
+          for (unsigned int q=0; q<n_q_face;++q){
 
-    cell->get_dof_indices(dof_indices);
+          for (unsigned int i=0;i<dofs_per_cell;++i){
+            cell_rhs(i) += alpha * solution_loc_face[q] *
+                                 fe_face_values.shape_value(i, q) *
+                                 fe_face_values.JxW(q);
+                                  }
+
+          for (unsigned int i=0;i<dofs_per_cell;++i){
+            for (unsigned int j=0;j<dofs_per_cell;++j){
+              cell_matrix(i,j)+= alpha*fe_face_values.shape_value(i,q)*
+                                fe_face_values.shape_value(j,q)*
+                                fe_face_values.JxW(q);
+                                  }
+                                }
+            }
+          }
+    */
+
+        cell->get_dof_indices(dof_indices);
 
     jacobian_matrix.add(dof_indices, cell_matrix);
     system_rhs.add(dof_indices, cell_rhs);
@@ -274,8 +273,8 @@ void LV::solve_linear_system() {
       jacobian_matrix, TrilinosWrappers::PreconditionSSOR::AdditionalData(1.0));
 
   solver.solve(jacobian_matrix, delta_owned, system_rhs, preconditioner);
-  pcout << "  " << solver_control.last_step()
-        << " GMRES iterations " << std::endl;
+  pcout << "  " << solver_control.last_step() << " GMRES iterations "
+        << std::endl;
 }
 
 void LV::solve_newton() {

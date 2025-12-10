@@ -5,11 +5,10 @@ TensorUtils::TensorUtils() : ad_helper(dim * dim) {
       C_flat = FullMatrix<double>(dim * dim, dim * dim);
     }
 
-void TensorUtils::compute_tensors(const Tensor<2, dim> &F, Tensor<2, dim> &P,
+void TensorUtils::compute_tensors(Tensor<2, dim> F, Tensor<2, dim> &P,
                          Tensor<4, dim> &C) {
 
-
-      ad_helper.reset();
+  ad_helper.reset();
   
       const FEValuesExtractors::Tensor<2> F_linearized(0);
       const FEValuesExtractors::Tensor<4> C_linearized(0);
@@ -27,6 +26,7 @@ void TensorUtils::compute_tensors(const Tensor<2, dim> &F, Tensor<2, dim> &P,
         ad_helper.register_dependent_variable(W_ad);
         ad_helper.stop_recording_operations(false);
       } else {
+        
         ad_helper.activate_recorded_tape(tape_index);
         ad_helper.set_independent_variable(F, F_linearized);
       }

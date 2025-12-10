@@ -39,33 +39,25 @@
 #include <fstream>
 #include <iostream>
 
+
+#include <memory>
+#include <functional>
+
 #include "common.hpp"
 
 // for reference:
-// https://dealii.org/current/doxygen/deal.II/classDifferentiation_1_1AD_1_1ScalarFunction.html
+// https://dealii.org/current/doxygen/deal.II/classDifferentiation_1_1AD_1_1VectorFunction.html
 
 using namespace dealii;
 
-class TensorUtils {
-
-  // TODO, import dim from LV
-  constexpr static unsigned int dim = 3;
-  using ADHelper = AutoDiff::ScalarFunction<dim, ADTypeCode, double>;
-  using ADNumberType = typename ADHelper::ad_type;
-  using ADTensor2 = Tensor<2, dim, ADNumberType>;
-
+template<unsigned int dim>
+class SystemAssembler {
+ 
 public:
-  TensorUtils();
-
-  void compute_tensors(Tensor<2, dim> F, Tensor<2, dim> &P, Tensor<4, dim> &C);
+  SystemAssembler(VFunctionWrapper& _fun);
+  void compute_jacobian(FullMatrix<double>& Mat, Tensor<1,dim,double>& u);
 
 private:
-  ADHelper ad_helper;
-  Vector<double> P_flat;
-  FullMatrix<double> C_flat;
-
-  ADNumberType compute_W(const Tensor<2, dim, ADNumberType> &F) const;
-
-  double mu_hook = 4.0;
-  double k_hook = 2.0;
+  VFunctionWrapper& fun;
+  VecADHelper ad_helper;
 };

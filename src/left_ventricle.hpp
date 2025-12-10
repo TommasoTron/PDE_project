@@ -39,6 +39,8 @@
 #include <fstream>
 #include <iostream>
 
+#include "common.hpp"
+
 using namespace dealii;
 
 /**
@@ -84,6 +86,7 @@ public:
   // Initialization.
   void setup();
 
+  
   // System assembly.
   void assemble_system();
 
@@ -154,4 +157,6 @@ protected:
 
   // DoFs owned by current process.
   IndexSet locally_owned_dofs;
+
+  void compute_rhs();
 };

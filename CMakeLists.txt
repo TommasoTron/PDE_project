@@ -36,6 +36,9 @@ deal_ii_initialize_cached_variables()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wfloat-conversion -Wmissing-braces -Wnon-virtual-dtor -Wfatal-errors")
 file(GLOB_RECURSE SOURCE_FILES "src/*.cpp" "src/*.hpp")
 
+add_library(SystemAssembler STATIC src/system_assembler.cpp)
+deal_ii_setup_target(SystemAssembler)
+
 add_library(TensorUtils STATIC src/tensor_utils.cpp)
 deal_ii_setup_target(TensorUtils)
 
